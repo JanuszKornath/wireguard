@@ -1,101 +1,153 @@
 #!/bin/bash
-WG_CONF="/etc/wireguard/wg0.conf"
-WG_NETWORK="10.8.0.0/24"
-CLIENT_DIR="/etc/wireguard/clients"
-SERVER_PUBLIC_KEY=$(grep '^PublicKey' "$WG_CONF" | awk '{print $3}')
-SERVER_ENDPOINT="your.vpn.server:51820"
+set -e
+
+# --- Konfiguration ---
+WG_DIR="/etc/wireguard"
+CLIENT_DIR="$WG_DIR/clients"
+WG_IF="wg0"
+SERVER_IP="10.8.0.1"
+SERVER_PORT="51820"
+EXT_IF="enp6s18"
+SERVER_DNS=$(ip route | grep default | awk '{print $3}')
+SERVER_ENDPOINT="server.org"
+LOG_FILE="/var/log/wireguard-mail.log"
 
 mkdir -p "$CLIENT_DIR"
-chmod 700 "$CLIENT_DIR"
 
-# Bestehende Clients auflisten
+# --- Prüfen, ob Interface existiert ---
+if ! wg show $WG_IF >/dev/null 2>&1; then
+    echo "Fehler: Interface $WG_IF existiert oder ist nicht hoch!"
+    exit 1
+fi
+
+SERVER_PUBLIC_KEY=$(wg show $WG_IF public-key 2>/dev/null || true)
+if [[ -z "$SERVER_PUBLIC_KEY" ]]; then
+    echo "Fehler: Server Public Key fehlt. Bitte wg-Interface prüfen."
+    exit 1
+fi
+
+# --- Bestehende Clients anzeigen ---
 echo "=== Bestehende WireGuard-Clients ==="
-if grep -q '^### Client' "$WG_CONF"; then
-    printf "%-20s %-15s %s\n" "Clientname" "IP-Adresse" "Public Key"
-    echo "----------------------------------------------------------"
-    grep -A2 '^### Client' "$WG_CONF" | grep -v '^$' | while read -r line; do
-        if [[ $line == '### Client'* ]]; then
-            CLIENT_NAME=$(echo $line | awk '{print $3}')
-        elif [[ $line == PublicKey* ]]; then
-            CLIENT_KEY=$(echo $line | awk '{print $3}')
-        elif [[ $line == AllowedIPs* ]]; then
-            CLIENT_IP=$(echo $line | awk '{print $3}' | cut -d'/' -f1)
-            printf "%-20s %-15s %s\n" "$CLIENT_NAME" "$CLIENT_IP" "$CLIENT_KEY"
-        fi
+if ls "$CLIENT_DIR"/*.conf >/dev/null 2>&1; then
+    for f in "$CLIENT_DIR"/*.conf; do
+        name=$(basename "$f" .conf)
+        ip=$(grep -m1 "Address" "$f" | awk '{print $3}')
+        echo " - $name ($ip)"
     done
 else
     echo "Keine Clients vorhanden."
 fi
 echo "==================================="
 
-# Funktion: nächste freie IP
-next_ip() {
-    for i in $(seq 2 254); do
-        ip="10.8.0.$i"
-        if ! grep -q "$ip" "$WG_CONF"; then
-            echo "$ip"
-            return
-        fi
-    done
-    echo "Keine freien IP-Adressen verfügbar!"
-    exit 1
-}
+# --- Nächste freie IP berechnen ---
+BASE="10.8.0"
+USED_IPS=$(grep -h "Address" "$CLIENT_DIR"/*.conf 2>/dev/null | awk '{print $3}' | cut -d'/' -f1)
+USED_IPS="$USED_IPS $SERVER_IP"
 
-# Clientname prüfen
+NEXT_IP=2
+MAX_IP=254
 while true; do
-    read -p "Name des neuen Clients: " CLIENT_NAME
-    if grep -q "### Client $CLIENT_NAME" "$WG_CONF"; then
-        echo "Client $CLIENT_NAME existiert bereits. Bitte einen anderen Namen wählen."
+    CANDIDATE="$BASE.$NEXT_IP"
+    if echo "$USED_IPS" | grep -qw "$CANDIDATE"; then
+        NEXT_IP=$((NEXT_IP+1))
+        if [[ $NEXT_IP -gt $MAX_IP ]]; then
+            echo "Fehler: Keine freien IPs mehr verfügbar (10.8.0.2-$BASE.$MAX_IP)"
+            exit 1
+        fi
     else
         break
     fi
 done
+CLIENT_IP="$BASE.$NEXT_IP"
 
-CLIENT_IP=$(next_ip)
-echo "Neue IP für $CLIENT_NAME: $CLIENT_IP"
+# --- Neuen Client anlegen ---
+read -rp "Name des neuen Clients: " CLIENT_NAME
 
-# Keys generieren
-CLIENT_PRIVATE_KEY=$(wg genkey)
-CLIENT_PUBLIC_KEY=$(echo "$CLIENT_PRIVATE_KEY" | wg pubkey)
-CLIENT_PRESHARED_KEY=$(wg genpsk)
+CLIENT_PRIV_KEY=$(wg genkey)
+CLIENT_PUB_KEY=$(echo "$CLIENT_PRIV_KEY" | wg pubkey)
 
-# Client-Konfigurationsdatei erstellen
-CLIENT_CONF="$CLIENT_DIR/$CLIENT_NAME.conf"
-cat > "$CLIENT_CONF" <<EOL
+# --- Tunnelname setzen ---
+TUNNEL_NAME="$WG_IF-$CLIENT_NAME"
+CLIENT_CONF="$CLIENT_DIR/$TUNNEL_NAME.conf"
+
+cat > "$CLIENT_CONF" <<EOF
+# Name: $TUNNEL_NAME
 [Interface]
-PrivateKey = $CLIENT_PRIVATE_KEY
+PrivateKey = $CLIENT_PRIV_KEY
 Address = $CLIENT_IP/24
-DNS = 1.1.1.1
+DNS = $SERVER_DNS
 
 [Peer]
 PublicKey = $SERVER_PUBLIC_KEY
-PresharedKey = $CLIENT_PRESHARED_KEY
-Endpoint = $SERVER_ENDPOINT
-AllowedIPs = 0.0.0.0/0, ::/0
-EOL
+Endpoint = $SERVER_ENDPOINT:$SERVER_PORT
+AllowedIPs = 0.0.0.0/0
+EOF
 
-chmod 600 "$CLIENT_CONF"
+# --- Server-Konfiguration updaten ---
+echo -e "\n[Peer]\nPublicKey = $CLIENT_PUB_KEY\nAllowedIPs = $CLIENT_IP/32" >> "$WG_DIR/$WG_IF.conf"
 
-# wg0.conf erweitern
-{
-    echo -e "\n### Client $CLIENT_NAME"
-    echo "PublicKey = $CLIENT_PUBLIC_KEY"
-    echo "PresharedKey = $CLIENT_PRESHARED_KEY"
-    echo "AllowedIPs = $CLIENT_IP/32"
-} >> "$WG_CONF"
-
-# WireGuard neu laden
-wg-quick down wg0
-wg-quick up wg0
+wg-quick down $WG_IF || true
+wg-quick up $WG_IF
 
 echo "Client $CLIENT_NAME erfolgreich erstellt!"
-echo "Konfiguration in $CLIENT_CONF"
+echo "Konfiguration: $CLIENT_CONF"
+echo "Zugewiesene IP: $CLIENT_IP"
 
-# Optional: Mailversand
-read -p "Möchten Sie die Konfiguration per E-Mail verschicken? (y/n): " SEND_MAIL
-if [[ "$SEND_MAIL" =~ ^[Yy]$ ]]; then
-    read -p "Empfänger-E-Mail: " RECIPIENT
-    echo "Sende $CLIENT_CONF an $RECIPIENT ..."
-    mail -s "WireGuard Client-Konfiguration $CLIENT_NAME" "$RECIPIENT" < "$CLIENT_CONF"
-    echo "E-Mail gesendet!"
+# --- QR-Code erzeugen ---
+QR_FILE="$CLIENT_DIR/$TUNNEL_NAME.png"
+if qrencode -o "$QR_FILE" -t PNG < "$CLIENT_CONF"; then
+    echo "QR-Code erstellt: $QR_FILE"
+else
+    echo "Fehler: QR-Code konnte nicht erstellt werden!"
+fi
+
+# --- Mail vorbereiten ---
+read -rp "Empfänger-E-Mail: " RECIPIENT
+
+MAIL_SUBJECT="Ihre WireGuard VPN-Konfiguration"
+MAIL_BODY=$(cat <<EOF
+Hallo $CLIENT_NAME,
+
+anbei erhältst du deine persönliche WireGuard VPN-Konfiguration. Bitte beachte die Anweisungen für verschiedene Betriebssystem.
+
+---
+
+### Ubuntu
+1. WireGuard installieren: sudo apt install wireguard qrencode
+2. Konfiguration speichern: /etc/wireguard/$TUNNEL_NAME.conf
+3. Tunnel aktivieren: sudo wg-quick up /etc/wireguard/$TUNNEL_NAME.conf
+4. Tunnel deaktivieren: sudo wg-quick down /etc/wireguard/$TUNNEL_NAME.conf
+5. Optional automatisch starten: sudo systemctl enable wg-quick@$TUNNEL_NAME
+6. Prüfen: sudo wg show
+
+Alternativ und komfortabler kann die Verbindung auch mit dem NetworkManager herstellt werden: https://wiki.ubuntuusers.de/WireGuard/#Start-per-NetworkManager
+
+### Android
+1. WireGuard App aus dem Play Store installieren
+2. .conf importieren oder QR-Code scannen
+3. Tunnel aktivieren
+
+### Windows 11
+1. WireGuard Windows installieren: https://www.wireguard.com/install/
+2. .conf importieren
+3. Tunnel aktivieren
+
+---
+
+### Hinweise
+- DNS wird automatisch gesetzt: $SERVER_DNS
+- Endpoint: $SERVER_ENDPOINT:$SERVER_PORT
+- IP-Adresse: $CLIENT_IP
+- PrivateKey niemals weitergeben!
+
+Dateianhänge: $TUNNEL_NAME.conf + QR-Code
+EOF
+)
+
+# --- Mail verschicken ---
+if mail -s "$MAIL_SUBJECT" -A "$CLIENT_CONF" -A "$QR_FILE" "$RECIPIENT" <<< "$MAIL_BODY"; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Gesendet: $CLIENT_CONF + QR-Code an $RECIPIENT" >> "$LOG_FILE"
+    echo "E-Mail erfolgreich gesendet!"
+else
+    echo "Fehler: E-Mail konnte nicht verschickt werden!"
 fi
