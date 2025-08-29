@@ -7,9 +7,9 @@ CLIENT_DIR="$WG_DIR/clients"
 WG_IF="wg0"
 SERVER_IP="10.8.0.1"
 SERVER_PORT="51820"
-EXT_IF="enp6s18"
-SERVER_DNS=$(ip route | grep default | awk '{print $3}')
-SERVER_ENDPOINT="server.org"
+EXT_IF="eth0"
+SERVER_DNS=1.1.1.1
+SERVER_ENDPOINT="vpn.org"
 LOG_FILE="/var/log/wireguard-mail.log"
 
 mkdir -p "$CLIENT_DIR"
@@ -104,7 +104,7 @@ fi
 # --- Mail vorbereiten ---
 read -rp "Empfänger-E-Mail: " RECIPIENT
 
-MAIL_SUBJECT="Ihre WireGuard VPN-Konfiguration"
+MAIL_SUBJECT="Deine WireGuard VPN-Konfiguration"
 MAIL_BODY=$(cat <<EOF
 Hallo $CLIENT_NAME,
 
@@ -113,14 +113,14 @@ anbei erhältst du deine persönliche WireGuard VPN-Konfiguration. Bitte beachte
 ---
 
 ### Ubuntu
-1. WireGuard installieren: sudo apt install wireguard qrencode
-2. Konfiguration speichern: /etc/wireguard/$TUNNEL_NAME.conf
-3. Tunnel aktivieren: sudo wg-quick up /etc/wireguard/$TUNNEL_NAME.conf
-4. Tunnel deaktivieren: sudo wg-quick down /etc/wireguard/$TUNNEL_NAME.conf
-5. Optional automatisch starten: sudo systemctl enable wg-quick@$TUNNEL_NAME
-6. Prüfen: sudo wg show
-
-Alternativ und komfortabler kann die Verbindung auch mit dem NetworkManager herstellt werden: https://wiki.ubuntuusers.de/WireGuard/#Start-per-NetworkManager
+1. Wireguard installieren: sudo apt update && sudo apt install wireguard-tools wireguard
+2. Lege ein Verzeichnis für die VPN-Konfiguration an: mkdir -p ~/wg
+3. Speichere die in dieser Mail enthaltene .conf-Datei in dieses Verzeichnis, z. B.: cp /path/to/downloaded/$TUNNEL_NAME.conf ~/wg/$TUNNEL_NAME.conf
+4. Import in den NetworkManager: nmcli connection import type wireguard file ~/wg/$TUNNEL_NAME.conf
+5. Überprüfen, ob die Verbindung importiert wurde: nmcli connection show
+        Hier sollte dann der Name der WireGuard-Verbindung erscheinen
+6. Verbindung aktivieren: nmcli connection up $TUNNEL_NAME
+        oder über das Netzwerkmenü (da wo WLAN und so sind)
 
 ### Android
 1. WireGuard App aus dem Play Store installieren
