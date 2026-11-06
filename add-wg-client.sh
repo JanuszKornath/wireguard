@@ -144,9 +144,15 @@ anbei erhältst du deine persönliche WireGuard VPN-Konfiguration. Bitte beachte
 6. Verbindung aktivieren: nmcli connection up $TUNNEL_NAME
 
 ### Android
-1. WireGuard App installieren
+Empfohlen wird die App "WG Tunnel" (Google Play oder F-Droid, https://wgtunnel.com).
+Sie hält die Verbindung deutlich stabiler als die offizielle WireGuard-App.
+1. WG Tunnel installieren
 2. .conf importieren oder QR-Code scannen
-3. Tunnel aktivieren
+3. In den Einstellungen "Seamless Tunnel Recovery" aktivieren
+   (stellt den Tunnel nach WLAN-Wechsel, Mobilfunk-Wechsel oder Flugmodus
+   automatisch wieder her, ohne dass die VPN-Verbindung abreißt)
+4. Tunnel aktivieren
+Alternativ funktioniert auch die offizielle WireGuard-App (ohne automatische Wiederherstellung).
 
 ### Windows 11
 1. WireGuard Windows installieren
