@@ -146,7 +146,7 @@ anbei erhältst du deine persönliche WireGuard VPN-Konfiguration. Bitte beachte
 ### Android
 Empfohlen wird die App "WG Tunnel" (https://wgtunnel.com).
 Sie hält die Verbindung deutlich stabiler als die offizielle WireGuard-App.
-1. WG Tunnel aus Google Play installieren:
+1. WG Tunnel aus dem Google Play Store installieren:
    https://play.google.com/store/apps/details?id=com.zaneschepke.wireguardautotunnel
 2. .conf importieren oder QR-Code scannen
 3. In den Einstellungen "Seamless Tunnel Recovery" aktivieren
