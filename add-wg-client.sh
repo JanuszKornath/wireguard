@@ -146,9 +146,8 @@ anbei erhältst du deine persönliche WireGuard VPN-Konfiguration. Bitte beachte
 ### Android
 Empfohlen wird die App "WG Tunnel" (https://wgtunnel.com).
 Sie hält die Verbindung deutlich stabiler als die offizielle WireGuard-App.
-1. WG Tunnel installieren:
-   - Google Play: https://play.google.com/store/apps/details?id=com.zaneschepke.wireguardautotunnel
-   - F-Droid (IzzyOnDroid-Repo): https://apt.izzysoft.de/fdroid/index/apk/com.zaneschepke.wireguardautotunnel
+1. WG Tunnel aus Google Play installieren:
+   https://play.google.com/store/apps/details?id=com.zaneschepke.wireguardautotunnel
 2. .conf importieren oder QR-Code scannen
 3. In den Einstellungen "Seamless Tunnel Recovery" aktivieren
    (stellt den Tunnel nach WLAN-Wechsel, Mobilfunk-Wechsel oder Flugmodus
